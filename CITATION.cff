@@ -1,0 +1,44 @@
+cff-version: 1.2.0
+title: xApp-Driven Multi-Metric Handover for 5G Open RAN
+message: >-
+  If you use this artifact, please cite the accompanying conference paper.
+type: software
+authors:
+  - given-names: Alessio
+    family-names: Vicario
+    affiliation: University of Palermo
+    email: alessio.vicario@unipa.it
+  - given-names: Antonino
+    family-names: Pagano
+    affiliation: University of Palermo and CNIT
+  - given-names: Alessandra
+    family-names: Dino
+    affiliation: University of Palermo and CNIT
+  - given-names: Daniele
+    family-names: Croce
+    affiliation: University of Palermo and CNIT
+  - given-names: Ilenia
+    family-names: Tinnirello
+    affiliation: University of Palermo and CNIT
+preferred-citation:
+  type: conference-paper
+  title: >-
+    xApp-Driven Multi-Metric Handover in 5G Open RAN with COTS User
+    Equipment
+  authors:
+    - given-names: Alessio
+      family-names: Vicario
+    - given-names: Antonino
+      family-names: Pagano
+    - given-names: Alessandra
+      family-names: Dino
+    - given-names: Daniele
+      family-names: Croce
+    - given-names: Ilenia
+      family-names: Tinnirello
+  conference:
+    name: >-
+      2026 Mediterranean Artificial Intelligence and Networking Conference
+      (MAIN)
+  year: 2026
+license: MIT

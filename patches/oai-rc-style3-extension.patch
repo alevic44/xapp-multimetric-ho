@@ -1,0 +1,636 @@
+diff --git a/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_rc.c b/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_rc.c
+index 14c357496c4..7be3b155309 100644
+--- a/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_rc.c
++++ b/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_rc.c
+@@ -27,7 +27,11 @@
+ #include "../../flexric/src/sm/rc_sm/ie/ir/ran_param_list.h"
+ #include "../../flexric/src/agent/e2_agent_api.h"
+ #include "openair2/E2AP/flexric/src/lib/sm/enc/enc_ue_id.h"
+-#include "openair2/E2AP/flexric/src/sm/rc_sm/rc_sm_id.h"
++#include "openair2/RRC/NR/rrc_gNB_mobility.h"
++#include "openair2/RRC/NR/nr_rrc_defs.h"
++#if defined(NGRAN_GNB_DU) && defined(NGRAN_GNB_CUCP)
++#include "openair2/RRC/NR/rrc_gNB_du.h"
++#endif
+ 
+ #include <stdio.h>
+ #include <unistd.h>
+@@ -272,17 +276,20 @@ static void fill_rc_control(ran_func_def_ctrl_t* ctrl)
+ {
+   // Sequence of CONTROL styles
+   // [1 - 63]
+-  ctrl->sz_seq_ctrl_style = 1;
++  ctrl->sz_seq_ctrl_style = 2; // Cambiato da 1 a 2 per supportare entrambi gli styles
+   ctrl->seq_ctrl_style = calloc(ctrl->sz_seq_ctrl_style, sizeof(seq_ctrl_style_t));
+   assert(ctrl->seq_ctrl_style != NULL && "Memory exhausted");
+ 
+   seq_ctrl_style_t* ctrl_style = &ctrl->seq_ctrl_style[0];
++  seq_ctrl_style_t* cnn_md_ctrl = &ctrl->seq_ctrl_style[1]; // Aggiunto secondo style
+ 
++  // =================== Radio Bearer Control (Style 1) ===================
+   // RIC Control Style Type
+   // Mandatory
+   // 9.3.3
+   // 6.2.2.2
+-  ctrl_style->style_type = 1;
++  ctrl_style->style_type = 1; // Radio Bearer Control
++  cnn_md_ctrl->style_type = 3; // Connected Mode Control
+ 
+   //RIC Control Style Name
+   //Mandatory
+@@ -290,39 +297,50 @@ static void fill_rc_control(ran_func_def_ctrl_t* ctrl)
+   // [1 -150]
+   const char control_name[] = "Radio Bearer Control";
+   ctrl_style->name = cp_str_to_ba(control_name);
++  const char cnn_md_control_name[] = "Connected Mode Mobility Control";
++  cnn_md_ctrl->name = cp_str_to_ba(cnn_md_control_name);
+ 
+   // RIC Control Header Format Type
+   // Mandatory
+   // 9.3.5
+   ctrl_style->hdr = FORMAT_1_E2SM_RC_CTRL_HDR;
++  cnn_md_ctrl->hdr = FORMAT_1_E2SM_RC_CTRL_HDR;
+ 
+   // RIC Control Message Format Type
+   // Mandatory
+   // 9.3.5
+   ctrl_style->msg = FORMAT_1_E2SM_RC_CTRL_MSG;
++  cnn_md_ctrl->msg = FORMAT_1_E2SM_RC_CTRL_MSG;
+ 
+   // RIC Call Process ID Format Type
+   // Optional
+   ctrl_style->call_proc_id_type = NULL;
++  cnn_md_ctrl->call_proc_id_type = NULL;
+ 
+   // RIC Control Outcome Format Type
+   // Mandatory
+   // 9.3.5
+   ctrl_style->out_frmt = FORMAT_1_E2SM_RC_CTRL_OUT;
++  cnn_md_ctrl->out_frmt = FORMAT_1_E2SM_RC_CTRL_OUT;
+ 
+   // Sequence of Control Actions
+   // [0-65535]
+   ctrl_style->sz_seq_ctrl_act = 1;
+   ctrl_style->seq_ctrl_act = calloc(ctrl_style->sz_seq_ctrl_act, sizeof(seq_ctrl_act_2_t));
+   assert(ctrl_style->seq_ctrl_act != NULL && "Memory exhausted");
++  cnn_md_ctrl->sz_seq_ctrl_act = 1;
++  cnn_md_ctrl->seq_ctrl_act = calloc(cnn_md_ctrl->sz_seq_ctrl_act, sizeof(seq_ctrl_act_2_t));
++  assert(cnn_md_ctrl->seq_ctrl_act != NULL && "Memory exhausted");
+ 
+   seq_ctrl_act_2_t* ctrl_act = &ctrl_style->seq_ctrl_act[0];
++  seq_ctrl_act_2_t* ho_ctrl_act = &cnn_md_ctrl->seq_ctrl_act[0];
+ 
+   // Control Action ID
+   // Mandatory
+   // 9.3.6
+   // [1-65535]
+   ctrl_act->id = 2;
++  ho_ctrl_act->id = 1;
+ 
+   // Control Action Name
+   // Mandatory
+@@ -330,15 +348,22 @@ static void fill_rc_control(ran_func_def_ctrl_t* ctrl)
+   // [1-150]
+   const char control_act_name[] = "QoS flow mapping configuration";
+   ctrl_act->name = cp_str_to_ba(control_act_name);
++  const char ho_ctrl_act_name[] = "Handover Control";
++  ho_ctrl_act->name = cp_str_to_ba(ho_ctrl_act_name);
+ 
+   // Sequence of Associated RAN Parameters
+   // [0-65535]
+   ctrl_act->sz_seq_assoc_ran_param = 2;
+   ctrl_act->assoc_ran_param = calloc(ctrl_act->sz_seq_assoc_ran_param, sizeof(seq_ran_param_3_t));
+   assert(ctrl_act->assoc_ran_param != NULL && "Memory exhausted");
++  ho_ctrl_act->sz_seq_assoc_ran_param = 4;
++  ho_ctrl_act->assoc_ran_param = calloc(ho_ctrl_act->sz_seq_assoc_ran_param, sizeof(seq_ran_param_3_t));
++  assert(ho_ctrl_act->assoc_ran_param != NULL && "Memory exhausted");
+ 
+   seq_ran_param_3_t* assoc_ran_param = ctrl_act->assoc_ran_param;
++  seq_ran_param_3_t* assoc_ran_param_ho = ho_ctrl_act->assoc_ran_param;
+ 
++  //=================== Radio Bearer Control ===================
+   // DRB ID
+   assoc_ran_param[0].id = 1;
+   const char ran_param_drb_id[] = "DRB ID";
+@@ -373,33 +398,191 @@ static void fill_rc_control(ran_func_def_ctrl_t* ctrl)
+   lst->ran_param[1].ran_param_name = cp_str_to_ba(ran_param_qos_flow_mapping_ind);
+   lst->ran_param[1].ran_param_def = NULL;
+ 
+-  // Sequence of Associated RAN 
+   // Parameters for Control Outcome
+   // [0- 255]
+   ctrl_style->sz_ran_param_ctrl_out = 0;
+   ctrl_style->ran_param_ctrl_out = NULL;
+-}
+ 
+-static ran_function_name_t fill_rc_ran_func_name(void)
+-{
+-  ran_function_name_t dst = {
+-    .name = cp_str_to_ba(SM_RAN_CTRL_SHORT_NAME),
+-    .oid = cp_str_to_ba(SM_RAN_CTRL_OID),
+-    .description = cp_str_to_ba(SM_RAN_CTRL_DESCRIPTION),
+-    .instance = NULL
+-  };
+-  return dst;
++  //=================== Connected Mode Mobility Control ===================
++  // Target Primary Cell ID
++  assoc_ran_param_ho[0].id = 1;
++  const char ran_param_target_primary_cell_id[] = "Target Primary Cell ID";
++  assoc_ran_param_ho[0].name = cp_str_to_ba(ran_param_target_primary_cell_id);
++  assoc_ran_param_ho[0].def = calloc(1, sizeof(ran_param_def_t));
++  assert(assoc_ran_param_ho[0].def != NULL && "Memory exhausted");
++  assoc_ran_param_ho[0].def->type = STRUCTURE_RAN_PARAMETER_DEF_TYPE;
++  assoc_ran_param_ho[0].def->strct = calloc(1, sizeof(ran_param_type_t));
++  assert(assoc_ran_param_ho[0].def->strct != NULL && "Memory exhausted");
++  ran_param_type_t* strct_ho = assoc_ran_param_ho[0].def->strct;
++  strct_ho->sz_ran_param = 1;
++  strct_ho->ran_param = calloc(strct_ho->sz_ran_param, sizeof(ran_param_lst_struct_t));
++  assert(strct_ho->ran_param != NULL && "Memory exhausted");
++
++  // CHOICE Target Cell
++  strct_ho->ran_param[0].ran_param_id = 2;
++  strct_ho->ran_param[0].ran_param_name = cp_str_to_ba("Target Cell");
++  strct_ho->ran_param[0].ran_param_def = calloc(1, sizeof(ran_param_def_t));
++  assert(strct_ho->ran_param[0].ran_param_def != NULL && "Memory exhausted");
++  strct_ho->ran_param[0].ran_param_def->type = STRUCTURE_RAN_PARAMETER_DEF_TYPE;
++  strct_ho->ran_param[0].ran_param_def->strct = calloc(1, sizeof(ran_param_type_t));
++  assert(strct_ho->ran_param[0].ran_param_def->strct != NULL && "Memory exhausted");
++  ran_param_type_t* strct_target_cell = strct_ho->ran_param[0].ran_param_def->strct;
++  strct_target_cell->sz_ran_param = 1;
++  strct_target_cell->ran_param = calloc(strct_target_cell->sz_ran_param, sizeof(ran_param_lst_struct_t));
++  assert(strct_target_cell->ran_param != NULL && "Memory exhausted");
++
++  // NR Cell
++  strct_target_cell->ran_param[0].ran_param_id = 3;
++  strct_target_cell->ran_param[0].ran_param_name = cp_str_to_ba("NR Cell");
++  strct_target_cell->ran_param[0].ran_param_def = calloc(1, sizeof(ran_param_def_t));
++  assert(strct_target_cell->ran_param[0].ran_param_def != NULL && "Memory exhausted");
++  strct_target_cell->ran_param[0].ran_param_def->type = STRUCTURE_RAN_PARAMETER_DEF_TYPE;
++  strct_target_cell->ran_param[0].ran_param_def->strct = calloc(1, sizeof(ran_param_type_t));
++  assert(strct_target_cell->ran_param[0].ran_param_def->strct != NULL && "Memory exhausted");
++  ran_param_type_t* strct_nr_cell = strct_target_cell->ran_param[0].ran_param_def->strct;
++  strct_nr_cell->sz_ran_param = 1;
++  strct_nr_cell->ran_param = calloc(strct_nr_cell->sz_ran_param, sizeof(ran_param_lst_struct_t));
++  assert(strct_nr_cell->ran_param != NULL && "Memory exhausted");
++
++  // NR CGI
++  strct_nr_cell->ran_param[0].ran_param_id = 4;
++  strct_nr_cell->ran_param[0].ran_param_name = cp_str_to_ba("NR CGI");
++  strct_nr_cell->ran_param[0].ran_param_def = NULL;
++
++  // List of PDU sessions for handover
++  assoc_ran_param_ho[1].id = 7;
++  assoc_ran_param_ho[1].name = cp_str_to_ba("List of PDU sessions for handover");
++  assoc_ran_param_ho[1].def = calloc(1, sizeof(ran_param_def_t));
++  assert(assoc_ran_param_ho[1].def != NULL && "Memory exhausted");
++  assoc_ran_param_ho[1].def->type = LIST_RAN_PARAMETER_DEF_TYPE;
++  assoc_ran_param_ho[1].def->lst = calloc(1, sizeof(ran_param_type_t));
++  assert(assoc_ran_param_ho[1].def->lst != NULL && "Memory exhausted");
++  ran_param_type_t* lst_pdu_sessions = assoc_ran_param_ho[1].def->lst;
++  lst_pdu_sessions->sz_ran_param = 1;
++  lst_pdu_sessions->ran_param = calloc(lst_pdu_sessions->sz_ran_param, sizeof(ran_param_lst_struct_t));
++  assert(lst_pdu_sessions->ran_param != NULL && "Memory exhausted");
++
++  // PDU Session Item
++  lst_pdu_sessions->ran_param[0].ran_param_id = 8;
++  lst_pdu_sessions->ran_param[0].ran_param_name = cp_str_to_ba("PDU Session");
++  lst_pdu_sessions->ran_param[0].ran_param_def = calloc(1, sizeof(ran_param_def_t));
++  assert(lst_pdu_sessions->ran_param[0].ran_param_def != NULL && "Memory exhausted");
++  lst_pdu_sessions->ran_param[0].ran_param_def->type = STRUCTURE_RAN_PARAMETER_DEF_TYPE;
++  lst_pdu_sessions->ran_param[0].ran_param_def->strct = calloc(1, sizeof(ran_param_type_t));
++  assert(lst_pdu_sessions->ran_param[0].ran_param_def->strct != NULL && "Memory exhausted");
++  ran_param_type_t* strct_pdu_session = lst_pdu_sessions->ran_param[0].ran_param_def->strct;
++  strct_pdu_session->sz_ran_param = 2;
++  strct_pdu_session->ran_param = calloc(strct_pdu_session->sz_ran_param, sizeof(ran_param_lst_struct_t));
++  assert(strct_pdu_session->ran_param != NULL && "Memory exhausted");
++
++  // PDU Session ID
++  strct_pdu_session->ran_param[0].ran_param_id = 9;
++  strct_pdu_session->ran_param[0].ran_param_name = cp_str_to_ba("PDU Session ID");
++  strct_pdu_session->ran_param[0].ran_param_def = NULL;
++
++  // List of QoS Flows in PDU Session
++  strct_pdu_session->ran_param[1].ran_param_id = 10;
++  strct_pdu_session->ran_param[1].ran_param_name = cp_str_to_ba("List of QoS Flows in PDU Session");
++  strct_pdu_session->ran_param[1].ran_param_def = calloc(1, sizeof(ran_param_def_t));
++  assert(strct_pdu_session->ran_param[1].ran_param_def != NULL && "Memory exhausted");
++  strct_pdu_session->ran_param[1].ran_param_def->type = LIST_RAN_PARAMETER_DEF_TYPE;
++  strct_pdu_session->ran_param[1].ran_param_def->lst = calloc(1, sizeof(ran_param_type_t));
++  assert(strct_pdu_session->ran_param[1].ran_param_def->lst != NULL && "Memory exhausted");
++  ran_param_type_t* lst_qos_flows = strct_pdu_session->ran_param[1].ran_param_def->lst;
++  lst_qos_flows->sz_ran_param = 1;
++  lst_qos_flows->ran_param = calloc(lst_qos_flows->sz_ran_param, sizeof(ran_param_lst_struct_t));
++  assert(lst_qos_flows->ran_param != NULL && "Memory exhausted");
++
++  // QoS Flow Item
++  lst_qos_flows->ran_param[0].ran_param_id = 11;
++  lst_qos_flows->ran_param[0].ran_param_name = cp_str_to_ba("QoS Flow Identifier");
++  lst_qos_flows->ran_param[0].ran_param_def = calloc(1, sizeof(ran_param_def_t));
++  assert(lst_qos_flows->ran_param[0].ran_param_def != NULL && "Memory exhausted");
++  lst_qos_flows->ran_param[0].ran_param_def->type = STRUCTURE_RAN_PARAMETER_DEF_TYPE;
++  lst_qos_flows->ran_param[0].ran_param_def->strct = calloc(1, sizeof(ran_param_type_t));
++  assert(lst_qos_flows->ran_param[0].ran_param_def->strct != NULL && "Memory exhausted");
++  ran_param_type_t* strct_qos_flow = lst_qos_flows->ran_param[0].ran_param_def->strct;
++  strct_qos_flow->sz_ran_param = 1;
++  strct_qos_flow->ran_param = calloc(strct_qos_flow->sz_ran_param, sizeof(ran_param_lst_struct_t));
++  assert(strct_qos_flow->ran_param != NULL && "Memory exhausted");
++
++  // QoS Flow Identifier
++  strct_qos_flow->ran_param[0].ran_param_id = 12;
++  strct_qos_flow->ran_param[0].ran_param_name = cp_str_to_ba("QoS Flow Identifier");
++  strct_qos_flow->ran_param[0].ran_param_def = NULL;
++
++  // List of DRB for Handover
++  assoc_ran_param_ho[2].id = 13;
++  assoc_ran_param_ho[2].name = cp_str_to_ba("List of DRB for Handover");
++  assoc_ran_param_ho[2].def = calloc(1, sizeof(ran_param_def_t));
++  assert(assoc_ran_param_ho[2].def != NULL && "Memory exhausted");
++  assoc_ran_param_ho[2].def->type = LIST_RAN_PARAMETER_DEF_TYPE;
++  assoc_ran_param_ho[2].def->lst = calloc(1, sizeof(ran_param_type_t));
++  assert(assoc_ran_param_ho[2].def->lst != NULL && "Memory exhausted");
++  ran_param_type_t* lst_drb_handover = assoc_ran_param_ho[2].def->lst;
++  lst_drb_handover->sz_ran_param = 1;
++  lst_drb_handover->ran_param = calloc(lst_drb_handover->sz_ran_param, sizeof(ran_param_lst_struct_t));
++  assert(lst_drb_handover->ran_param != NULL && "Memory exhausted");
++
++  // DRB Item
++  lst_drb_handover->ran_param[0].ran_param_id = 14;
++  lst_drb_handover->ran_param[0].ran_param_name = cp_str_to_ba("DRB");
++  lst_drb_handover->ran_param[0].ran_param_def = calloc(1, sizeof(ran_param_def_t));
++  assert(lst_drb_handover->ran_param[0].ran_param_def != NULL && "Memory exhausted");
++  lst_drb_handover->ran_param[0].ran_param_def->type = STRUCTURE_RAN_PARAMETER_DEF_TYPE;
++  lst_drb_handover->ran_param[0].ran_param_def->strct = calloc(1, sizeof(ran_param_type_t));
++  assert(lst_drb_handover->ran_param[0].ran_param_def->strct != NULL && "Memory exhausted");
++  ran_param_type_t* strct_drb = lst_drb_handover->ran_param[0].ran_param_def->strct;
++  strct_drb->sz_ran_param = 1;
++  strct_drb->ran_param = calloc(strct_drb->sz_ran_param, sizeof(ran_param_lst_struct_t));
++  assert(strct_drb->ran_param != NULL && "Memory exhausted");
++
++  // DRB ID
++  strct_drb->ran_param[0].ran_param_id = 15;
++  strct_drb->ran_param[0].ran_param_name = cp_str_to_ba("DRB ID");
++  strct_drb->ran_param[0].ran_param_def = NULL;
++
++  // List of QoS Flows in DRB
++  assoc_ran_param_ho[3].id = 16;
++  assoc_ran_param_ho[3].name = cp_str_to_ba("List of QoS Flows in DRB");
++  assoc_ran_param_ho[3].def = calloc(1, sizeof(ran_param_def_t));
++  assert(assoc_ran_param_ho[3].def != NULL && "Memory exhausted");
++  assoc_ran_param_ho[3].def->type = LIST_RAN_PARAMETER_DEF_TYPE;
++  assoc_ran_param_ho[3].def->lst = calloc(1, sizeof(ran_param_type_t));
++  assert(assoc_ran_param_ho[3].def->lst != NULL && "Memory exhausted");
++  ran_param_type_t* lst_qos_flows_drb = assoc_ran_param_ho[3].def->lst;
++  lst_qos_flows_drb->sz_ran_param = 1;
++  lst_qos_flows_drb->ran_param = calloc(lst_qos_flows_drb->sz_ran_param, sizeof(ran_param_lst_struct_t));
++  assert(lst_qos_flows_drb->ran_param != NULL && "Memory exhausted");
++
++  // QoS Flow Item in DRB
++  lst_qos_flows_drb->ran_param[0].ran_param_id = 17;
++  lst_qos_flows_drb->ran_param[0].ran_param_name = cp_str_to_ba("QoS Flow Identifier");
++  lst_qos_flows_drb->ran_param[0].ran_param_def = calloc(1, sizeof(ran_param_def_t));
++  assert(lst_qos_flows_drb->ran_param[0].ran_param_def != NULL && "Memory exhausted");
++  lst_qos_flows_drb->ran_param[0].ran_param_def->type = STRUCTURE_RAN_PARAMETER_DEF_TYPE;
++  lst_qos_flows_drb->ran_param[0].ran_param_def->strct = calloc(1, sizeof(ran_param_type_t));
++  assert(lst_qos_flows_drb->ran_param[0].ran_param_def->strct != NULL && "Memory exhausted");
++  ran_param_type_t* strct_qos_flow_drb = lst_qos_flows_drb->ran_param[0].ran_param_def->strct;
++  strct_qos_flow_drb->sz_ran_param = 1;
++  strct_qos_flow_drb->ran_param = calloc(strct_qos_flow_drb->sz_ran_param, sizeof(ran_param_lst_struct_t));
++  assert(strct_qos_flow_drb->ran_param != NULL && "Memory exhausted");
++
++  // QoS Flow Identifier in DRB
++  strct_qos_flow_drb->ran_param[0].ran_param_id = 18;
++  strct_qos_flow_drb->ran_param[0].ran_param_name = cp_str_to_ba("QoS Flow Identifier");
++  strct_qos_flow_drb->ran_param[0].ran_param_def = NULL;
++
++  // Sequence of Associated RAN Parameters for Control Outcome
++  // [0- 255]
++  cnn_md_ctrl->sz_ran_param_ctrl_out = 0;
++  cnn_md_ctrl->ran_param_ctrl_out = NULL;
+ }
+ 
+ e2sm_rc_func_def_t fill_rc_ran_def_gnb(void)
+ {
+   e2sm_rc_func_def_t def = {0};
+ 
+-  // RAN Function Name
+-  // Mandatory
+-  // 9.3.2
+-  def.name = fill_rc_ran_func_name();
+-
+   // RAN Function Definition for EVENT TRIGGER
+   // Optional
+   // 9.2.2.2
+@@ -438,11 +621,6 @@ static e2sm_rc_func_def_t fill_rc_ran_def_cu(void)
+ {
+   e2sm_rc_func_def_t def = {0};
+ 
+-  // RAN Function Name
+-  // Mandatory
+-  // 9.3.2
+-  def.name = fill_rc_ran_func_name();
+-
+   // RAN Function Definition for EVENT TRIGGER
+   // Optional
+   // 9.2.2.2
+@@ -481,11 +659,6 @@ static e2sm_rc_func_def_t fill_rc_ran_def_null(void)
+ {
+   e2sm_rc_func_def_t def = {0};
+ 
+-  // RAN Function Name
+-  // Mandatory
+-  // 9.3.2
+-  def.name = fill_rc_ran_func_name();
+-
+   // RAN Function Definition for EVENT TRIGGER
+   // Optional
+   // 9.2.2.2
+@@ -518,11 +691,6 @@ static e2sm_rc_func_def_t fill_rc_ran_def_cucp(void)
+ {
+   e2sm_rc_func_def_t def = {0};
+ 
+-  // RAN Function Name
+-  // Mandatory
+-  // 9.3.2
+-  def.name = fill_rc_ran_func_name();
+-
+   // RAN Function Definition for EVENT TRIGGER
+   // Optional
+   // 9.2.2.2
+@@ -579,6 +747,9 @@ void read_rc_setup_sm(void* data)
+   rc_e2_setup_t* rc = (rc_e2_setup_t*)data;
+ 
+   /* Fill the RAN Function Definition with currently supported measurements */
++  
++  // RAN Function Name is already filled in fill_ran_function_name() in rc_sm_agent.c
++
+   const ngran_node_t node_type = get_e2_node_type();
+   rc->ran_func_def = ran_def_rc[node_type]();
+ 
+@@ -888,18 +1059,8 @@ sm_ag_if_ans_t write_subs_rc_sm(void const* src)
+   return ans;
+ }
+ 
+-
+-sm_ag_if_ans_t write_ctrl_rc_sm(void const* data)
++static void handle_qos_flow_mapping_config(rc_ctrl_req_data_t const* ctrl)
+ {
+-  assert(data != NULL);
+-//  assert(data->type == RAN_CONTROL_CTRL_V1_03 );
+-
+-  rc_ctrl_req_data_t const* ctrl = (rc_ctrl_req_data_t const*)data;
+-
+-  assert(ctrl->hdr.format == FORMAT_1_E2SM_RC_CTRL_HDR && "Indication Header Format received not valid");
+-  assert(ctrl->msg.format == FORMAT_1_E2SM_RC_CTRL_MSG && "Indication Message Format received not valid");
+-  assert(ctrl->hdr.frmt_1.ctrl_act_id == 2 && "Currently only QoS flow mapping configuration supported");
+-
+   printf("QoS flow mapping configuration\n");
+ 
+   const seq_ran_param_t* ran_param = ctrl->msg.frmt_1.ran_param;
+@@ -909,7 +1070,6 @@ sm_ag_if_ans_t write_ctrl_rc_sm(void const* data)
+   assert(ran_param[0].ran_param_val.type == ELEMENT_KEY_FLAG_TRUE_RAN_PARAMETER_VAL_TYPE);
+   printf("DRB ID %ld \n", ran_param[0].ran_param_val.flag_true->int_ran);
+ 
+-
+   // List of QoS Flows to be modified in DRB
+   assert(ran_param[1].ran_param_id == 2 && "Second RAN Parameter ID has to be List of QoS Flows");
+   assert(ran_param[1].ran_param_val.type == LIST_RAN_PARAMETER_VAL_TYPE);
+@@ -933,7 +1093,239 @@ sm_ag_if_ans_t write_ctrl_rc_sm(void const* data)
+   assert(dir == 0 || dir == 1);
+ 
+   printf("qfi = %ld, dir %ld \n", qfi, dir);
++}
+ 
++// Funzione di debug per stampare tutti gli rrc_ue_id attivi nella gNB
++static void print_all_active_rrc_ue_ids(gNB_RRC_INST *rrc) {
++  printf("[E2 AGENT][DEBUG] Lista rrc_ue_id attivi nella gNB: ");
++  rrc_gNB_ue_context_t *ue_context_p = NULL;
++  int count = 0;
++  RB_FOREACH(ue_context_p, rrc_nr_ue_tree_s, &rrc->rrc_ue_head) {
++    printf("%u ", ue_context_p->ue_context.rrc_ue_id);
++    count++;
++  }
++  if (count == 0) printf("(nessuno)");
++  printf("\n");
++}
++
++// Funzione per trovare il contesto UE tramite amf_ue_ngap_id
++static rrc_gNB_ue_context_t *find_ue_context_by_amf_ue_ngap_id(gNB_RRC_INST *rrc, uint64_t amf_ue_ngap_id) {
++  rrc_gNB_ue_context_t *ue_context_p = NULL;
++  RB_FOREACH(ue_context_p, rrc_nr_ue_tree_s, &rrc->rrc_ue_head) {
++    if (ue_context_p->ue_context.amf_ue_ngap_id == amf_ue_ngap_id) {
++      // log che stampa l'id del UE
++      printf("[E2 AGENT] UE ID trovato: %lu\n", ue_context_p->ue_context.amf_ue_ngap_id);
++      return ue_context_p;
++    }
++  }
++  return NULL;
++}
++
++static void handle_handover_control(rc_ctrl_req_data_t const* ctrl)
++{
++  const seq_ran_param_t* ran_param = ctrl->msg.frmt_1.ran_param;
++  printf("[E2 AGENT][DEBUG] Livello 1: ran_param_id=%u, type=%d\n", ran_param[0].ran_param_id, ran_param[0].ran_param_val.type);
++  // Livello 1: Target Primary Cell ID (id=1, STRUCTURE)
++  if (ran_param[0].ran_param_id == 1 &&
++      ran_param[0].ran_param_val.type == STRUCTURE_RAN_PARAMETER_VAL_TYPE) {
++    ran_param_struct_t* target_cell_struct = ran_param[0].ran_param_val.strct;
++    const seq_ran_param_t* target_cell = target_cell_struct->ran_param_struct;
++    printf("[E2 AGENT][DEBUG] Livello 2: ran_param_id=%u, type=%d\n", target_cell[0].ran_param_id, target_cell[0].ran_param_val.type);
++    // Livello 2: Target Cell (id=2, STRUCTURE)
++    if (target_cell[0].ran_param_id == 2 &&
++        target_cell[0].ran_param_val.type == STRUCTURE_RAN_PARAMETER_VAL_TYPE) {
++      ran_param_struct_t* nr_cell_struct = target_cell[0].ran_param_val.strct;
++      const seq_ran_param_t* nr_cell = nr_cell_struct->ran_param_struct;
++      printf("[E2 AGENT][DEBUG] Livello 3: ran_param_id=%u, type=%d\n", nr_cell[0].ran_param_id, nr_cell[0].ran_param_val.type);
++      // Livello 3: NR Cell (id=3, STRUCTURE)
++      if (nr_cell[0].ran_param_id == 3 &&
++          nr_cell[0].ran_param_val.type == STRUCTURE_RAN_PARAMETER_VAL_TYPE) {
++        ran_param_struct_t* nr_cgi_struct = nr_cell[0].ran_param_val.strct;
++        const seq_ran_param_t* nr_cgi = nr_cgi_struct->ran_param_struct;
++        printf("[E2 AGENT][DEBUG] Livello 4: ran_param_id=%u, type=%d\n", nr_cgi[0].ran_param_id, nr_cgi[0].ran_param_val.type);
++        // Livello 4: NR CGI (id=4, valore foglia)
++        if (nr_cgi[0].ran_param_id == 4 &&
++            nr_cgi[0].ran_param_val.type == ELEMENT_KEY_FLAG_TRUE_RAN_PARAMETER_VAL_TYPE) {
++          ran_parameter_value_t* val = nr_cgi[0].ran_param_val.flag_true;
++          if (val->type == OCTET_STRING_RAN_PARAMETER_VALUE) {
++            const uint8_t* buf = val->octet_str_ran.buf;
++            size_t len = val->octet_str_ran.len;
++            printf("[E2 AGENT] NR CGI octet string: ");
++            for (size_t i = 0; i < len; ++i) printf("%02X ", buf[i]);
++            printf("\n");
++            // Parsing corretto dell'octet string dalla xApp
++            // Formato: [MCC][MNC][MNC][gNB_ID_byte1][gNB_ID_byte2][gNB_ID_byte3][gNB_ID_byte4][Cell_ID_byte1]
++            uint8_t mcc = buf[0];
++            uint8_t mnc_high = buf[1];
++            uint8_t mnc_low = buf[2];
++            uint32_t gnb_id = (buf[3] << 24) | (buf[4] << 16) | (buf[5] << 8) | buf[6];
++            // Parsing corretto del Cell ID (4 byte), Physical Cell ID (2 byte) e TAC (2 byte)
++            uint64_t cell_id = 0;
++            uint16_t physical_cell_id = 0;
++            uint16_t tac = 0;
++            
++            if (len >= 15) {
++                // Formato completo: Cell ID nei byte 7-10 (4 byte), PCI nei byte 11-12 (2 byte), TAC nei byte 13-14 (2 byte)
++                cell_id = ((uint64_t)buf[7] << 24) | ((uint64_t)buf[8] << 16) | ((uint64_t)buf[9] << 8) | buf[10];
++                physical_cell_id = ((uint16_t)buf[11] << 8) | buf[12];
++                tac = ((uint16_t)buf[13] << 8) | buf[14];
++            } else if (len >= 13) {
++                // Formato intermedio: Cell ID nei byte 7-10 (4 byte), PCI nei byte 11-12 (2 byte), TAC = 0
++                cell_id = ((uint64_t)buf[7] << 24) | ((uint64_t)buf[8] << 16) | ((uint64_t)buf[9] << 8) | buf[10];
++                physical_cell_id = ((uint16_t)buf[11] << 8) | buf[12];
++                tac = 0;
++            } else if (len >= 11) {
++                // Formato intermedio: Cell ID nei byte 7-10 (4 byte), PCI = 0, TAC = 0
++                cell_id = ((uint64_t)buf[7] << 24) | ((uint64_t)buf[8] << 16) | ((uint64_t)buf[9] << 8) | buf[10];
++                physical_cell_id = 0;
++                tac = 0;
++            } else {
++                // Fallback per compatibilità con formato vecchio (1 byte)
++                cell_id = (uint64_t)buf[7];
++                physical_cell_id = 0;
++                tac = 0;
++            }
++            
++            printf("[E2 AGENT] Parsing corretto dell'octet string:\n");
++            printf("[E2 AGENT] - MCC: %u\n", mcc);
++            printf("[E2 AGENT] - MNC: %u%u\n", mnc_high, mnc_low);
++            printf("[E2 AGENT] - gNB ID: 0x%x\n", gnb_id);
++            printf("[E2 AGENT] - Cell ID: %lu\n", cell_id);
++            printf("[E2 AGENT] - Physical Cell ID: %u\n", physical_cell_id);
++            printf("[E2 AGENT] - TAC: 0x%04x (%u)\n", tac, tac);
++            // --- Recupero UE e trigger HO come prima ---
++            ue_id_e2sm_t ue_id = ctrl->hdr.frmt_1.ue_id;
++            //log che stampa l'id del UE
++            printf("[E2 AGENT] UE ID: %lu\n", ue_id.gnb.amf_ue_ngap_id);
++            uint64_t internal_ue_id = 0;
++            switch (ue_id.type) {
++              case GNB_UE_ID_E2SM:
++                internal_ue_id = ue_id.gnb.amf_ue_ngap_id;
++                break;
++              default:
++                printf("[E2 AGENT] Tipo UE ID non gestito: %d\n", ue_id.type);
++                return;
++            }
++            printf("[E2 AGENT] Internal UE ID: %lu\n", internal_ue_id);
++            gNB_RRC_INST *rrc = RC.nrrrc[0];
++            if (!rrc) {
++              printf("[E2 AGENT] RRC context non trovato!\n");
++              return;
++            }
++            print_all_active_rrc_ue_ids(rrc);
++            rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(rrc, internal_ue_id);
++            if (!ue_context_p) {
++              // Provo anche con amf_ue_ngap_id
++              ue_context_p = find_ue_context_by_amf_ue_ngap_id(rrc, internal_ue_id);
++              if (ue_context_p) {
++                printf("[E2 AGENT] UE context trovato tramite amf_ue_ngap_id=%lu (rrc_ue_id=%u)\n", internal_ue_id, ue_context_p->ue_context.rrc_ue_id);
++              }
++            }
++            if (ue_context_p) {
++#if defined(NGRAN_GNB_DU) && defined(NGRAN_GNB_CUCP)
++              gNB_RRC_UE_t *ue = &ue_context_p->ue_context;
++
++              // Recupera il PCI della serving cell (source) dell'UE
++              struct nr_rrc_du_container_t *du = get_du_for_ue(rrc, ue->rrc_ue_id);
++              if (!du) {
++                printf("[E2 AGENT] DU non trovato per UE %u, impossibile triggerare HO\n", ue->rrc_ue_id);
++                return;
++              }
++              int serving_pci = du->setup_req->cell[0].info.nr_pci;
++              printf("[E2 AGENT] Source/Serving Cell PCI: %d\n", serving_pci);
++
++              // Configurazione neighbour basata sui valori dalla xApp
++              nr_neighbour_gnb_configuration_t neighbour_config = {
++                .isIntraFrequencyNeighbour = true,
++                .gNB_ID = gnb_id, // ✅ Usa gNB ID dalla xApp
++                .nrcell_id = cell_id, // ✅ Usa Cell ID dalla xApp
++                .physicalCellId = physical_cell_id, // ✅ Usa Physical Cell ID dalla xApp (target)
++                .plmn.mcc = mcc, // ✅ Usa MCC dalla xApp
++                .plmn.mnc = (mnc_high * 10) + mnc_low, // ✅ Usa MNC dalla xApp
++                .plmn.mnc_digit_length = 2,
++                .subcarrierSpacing = 30, // Default value
++                .tac = tac // ✅ Usa TAC dalla xApp
++              };
++
++              printf("[E2 AGENT] Configurazione handover dalla xApp:\n");
++              printf("[E2 AGENT] - Source PCI (serving cell): %d\n", serving_pci);
++              printf("[E2 AGENT] - Target gNB ID: 0x%x\n", neighbour_config.gNB_ID);
++              printf("[E2 AGENT] - Target Cell ID: %lu\n", neighbour_config.nrcell_id);
++              printf("[E2 AGENT] - Target Physical Cell ID: %u\n", neighbour_config.physicalCellId);
++              printf("[E2 AGENT] - PLMN: MCC=%u, MNC=%u\n", neighbour_config.plmn.mcc, neighbour_config.plmn.mnc);
++              printf("[E2 AGENT] - TAC: 0x%04x (%u)\n", neighbour_config.tac, neighbour_config.tac);
++
++              // CORREZIONE: passa serving_pci (source) invece di physicalCellId (target)
++              nr_rrc_trigger_n2_ho(rrc, ue, serving_pci, &neighbour_config);
++              printf("[E2 AGENT] Triggerato handover inter-CU verso gNB 0x%x, cella %lu\n", gnb_id, cell_id);
++#else
++              printf("[E2 AGENT] Handover control non supportato su questo nodo (CU-UP)\n");
++#endif
++            } else {
++              printf("[E2 AGENT] UE context non trovato, impossibile triggerare HO\n");
++              printf("[E2 AGENT] Possibili cause:\n");
++              printf("[E2 AGENT] - UE già completato handover verso target gNB\n");
++              printf("[E2 AGENT] - UE disconnesso\n");
++              printf("[E2 AGENT] - UE ID non valido\n");
++              printf("[E2 AGENT] - Problema di sincronizzazione tra xApp e gNB\n");
++            }
++            return;
++          }
++        }
++      }
++    }
++  }
++  printf("[E2 AGENT] Struttura IE handover non riconosciuta o incompleta\n");
++}
++
++sm_ag_if_ans_t write_ctrl_rc_sm(void const* data)
++{
++  assert(data != NULL);
++  //  assert(data->type == RAN_CONTROL_CTRL_V1_03 );
++
++  rc_ctrl_req_data_t const* ctrl = (rc_ctrl_req_data_t const*)data;
++
++  assert(ctrl->hdr.format == FORMAT_1_E2SM_RC_CTRL_HDR && "Indication Header Format received not valid");
++  assert(ctrl->msg.format == FORMAT_1_E2SM_RC_CTRL_MSG && "Indication Message Format received not valid");
++
++  const uint32_t ric_style_type = ctrl->hdr.frmt_1.ric_style_type;
++  const uint32_t ctrl_act_id = ctrl->hdr.frmt_1.ctrl_act_id;
++
++  // Handle Radio Bearer Control (Style Type 1)
++  if (ric_style_type == 1) {
++    if (ctrl_act_id == 2) {
++      printf("QoS flow mapping configuration\n");
++      handle_qos_flow_mapping_config(ctrl);
++    } else {
++      AssertError(false,
++                  return (sm_ag_if_ans_t){0},
++                  "[E2 AGENT] Control Action ID %d not supported for Radio Bearer Control (Style Type 1)\n",
++                  ctrl_act_id);
++    }
++  }
++  // Handle Connected Mode Mobility Control (Style Type 3)
++  else if (ric_style_type == 3) {
++    if (ctrl_act_id == 1) {
++      printf("Handover Control\n");
++      handle_handover_control(ctrl);
++    } else {
++      AssertError(false,
++                  return (sm_ag_if_ans_t){0},
++                  "[E2 AGENT] Control Action ID %d not supported for Connected Mode Mobility Control (Style Type 3)\n",
++                  ctrl_act_id);
++    }
++  }
++  // Handle legacy case for backward compatibility
++  else if (ctrl_act_id == 2) {
++    printf("QoS flow mapping configuration\n");
++    handle_qos_flow_mapping_config(ctrl);
++  } else {
++    AssertError(false,
++                return (sm_ag_if_ans_t){0},
++                "[E2 AGENT] Control Style Type %d and Control Action ID %d not supported\n",
++                ric_style_type,
++                ctrl_act_id);
++  }
+ 
+   sm_ag_if_ans_t ans = {.type = CTRL_OUTCOME_SM_AG_IF_ANS_V0};
+   ans.ctrl_out.type = RAN_CTRL_V1_3_AGENT_IF_CTRL_ANS_V0;

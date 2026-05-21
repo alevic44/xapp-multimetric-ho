@@ -1,0 +1,163 @@
+diff --git a/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_kpm_subs.c b/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_kpm_subs.c
+index 80579e1754b..3707e6e6aa9 100644
+--- a/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_kpm_subs.c
++++ b/openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_kpm_subs.c
+@@ -20,6 +20,7 @@
+  */
+ 
+ #include "ran_func_kpm_subs.h"
++#include "openair2/E2AP/flexric/src/sm/kpm_sm/kpm_sm_v02.03/ie/kpm_data_ie/data/meas_data_lst.h"
+ 
+ #include <search.h>
+ 
+@@ -39,7 +40,11 @@ static nr_pdcp_statistics_t get_pdcp_stats_per_drb(const uint32_t rrc_ue_id, con
+ 
+   // Get PDCP stats for specific DRB
+   const bool rc = nr_pdcp_get_statistics(rrc_ue_id, srb_flag, rb_id, &pdcp);
+-  assert(rc == true && "Cannot get PDCP stats\n");
++  if (rc == false) {
++    //printf("[KPM DEBUG] WARNING: Cannot get PDCP stats for UE %u, DRB %d - returning empty stats\n", rrc_ue_id, rb_id);
++    // Return empty statistics instead of crashing
++    return pdcp;
++  }
+ 
+   return pdcp;
+ }
+@@ -93,7 +98,11 @@ static nr_rlc_statistics_t get_rlc_stats_per_drb(const rnti_t rnti, const int rb
+ 
+   // Get RLC stats for specific DRB
+   const bool rc = nr_rlc_get_statistics(rnti, srb_flag, rb_id, &rlc);
+-  assert(rc == true && "Cannot get RLC stats\n");
++  if (rc == false) {
++    //printf("[KPM DEBUG] WARNING: Cannot get RLC stats for RNTI %u, DRB %d - returning empty stats\n", rnti, rb_id);
++    // Return empty statistics instead of crashing
++    return rlc;
++  }
+ 
+   // Activate average sojourn time at the RLC buffer for specific DRB
+   nr_rlc_activate_avg_time_to_tx(rnti, rb_id+3, 1);
+@@ -191,15 +200,118 @@ static meas_record_lst_t fill_RRU_PrbTotUl(__attribute__((unused))uint32_t gran_
+ }
+ #endif
+ 
++/* Packet Loss Rate UL (PDCP) */
++static meas_record_lst_t fill_DRB_PacketLossRateUl(__attribute__((unused))uint32_t gran_period_ms, cudu_ue_info_pair_t ue_info, __attribute__((unused))const size_t ue_idx)
++{
++  meas_record_lst_t meas_record = {0};
++  const int rb_id = 1; // supponiamo 1 DRB
++  nr_pdcp_statistics_t pdcp = get_pdcp_stats_per_drb(ue_info.rrc_ue_id, rb_id);
++
++  meas_record.value = REAL_MEAS_VALUE;
++  uint32_t total_sent = pdcp.txpdu_pkts;
++  uint32_t total_lost = pdcp.rxpdu_dd_pkts; // proxy: pacchetti scartati lato ricezione
++  if (total_sent > 0) {
++    meas_record.real_val = (double)total_lost / (double)total_sent;
++  } else {
++    meas_record.real_val = 0.0;
++  }
++  return meas_record;
++}
++
++static meas_record_lst_t fill_RSRP(__attribute__((unused))uint32_t gran_period_ms, cudu_ue_info_pair_t ue_info, __attribute__((unused))const size_t ue_idx)
++{
++  meas_record_lst_t meas_record = {0};
++  
++  meas_record.value = INTEGER_MEAS_VALUE;
++  
++  // Get RSRP from SSB measurements if available
++  if (ue_info.ue && ue_info.ue->UE_sched_ctrl.CSI_report.ssb_rsrp_report.nr_reports > 0) {
++    meas_record.int_val = ue_info.ue->UE_sched_ctrl.CSI_report.ssb_rsrp_report.RSRP[0];  // [dBm]
++  } else {
++    meas_record.int_val = -100;  // Default value if measurements not available
++  }
++  
++  return meas_record;
++}
++
++static meas_record_lst_t fill_RSRQ(__attribute__((unused))uint32_t gran_period_ms, cudu_ue_info_pair_t ue_info, __attribute__((unused))const size_t ue_idx)
++{
++  meas_record_lst_t meas_record = {0};
++
++  // NOTE: Conformant RSRQ (3GPP TS 38.133) requires RSSI, which is not available
++  // in the gNB MAC path. The UE-measured RSRQ is available via RRC MeasurementReport
++  // (decoded with formula: rsrq_dB = (raw - 87) / 2.0, per TS 38.133 Table 10.1.6.1-1)
++  // and should be read in the xApp via RC subscription (Event Style 4).
++  // This KPM path returns a coarse RSRP-derived estimate as a fallback only.
++  meas_record.value = INTEGER_MEAS_VALUE;
++
++  if (ue_info.ue && ue_info.ue->UE_sched_ctrl.CSI_report.ssb_rsrp_report.nr_reports > 0) {
++    int rsrp = ue_info.ue->UE_sched_ctrl.CSI_report.ssb_rsrp_report.RSRP[0];
++    if (rsrp > -80) {
++      meas_record.int_val = -8;   // coarse estimate: good channel
++    } else if (rsrp > -100) {
++      meas_record.int_val = -12;  // coarse estimate: medium channel
++    } else {
++      meas_record.int_val = -16;  // coarse estimate: poor channel
++    }
++  } else {
++    meas_record.int_val = -10;
++  }
++
++  return meas_record;
++}
++
++static meas_record_lst_t fill_SINR(__attribute__((unused))uint32_t gran_period_ms, cudu_ue_info_pair_t ue_info, __attribute__((unused))const size_t ue_idx)
++{
++  meas_record_lst_t meas_record = {0};
++
++  // Return SINR as REAL value in dB.
++  // Conversion: SINR_dB = (SINR_index - 64) * 0.5
++  // per 3GPP TS 38.133 Tables 10.1.16.1-1 and 10.1.16.1-2
++  // Range: -32 dB (index=0) to +31.5 dB (index=127)
++  meas_record.value = REAL_MEAS_VALUE;
++
++  if (ue_info.ue && ue_info.ue->UE_sched_ctrl.CSI_report.ssb_rsrp_report.nr_reports > 0) {
++    int sinr_index = ue_info.ue->UE_sched_ctrl.CSI_report.ssb_rsrp_report.SINR_index[0];
++    meas_record.real_val = (sinr_index - 64) * 0.5;
++  } else {
++    meas_record.real_val = 0.0;  // neutral default when no SSB report available
++  }
++
++  return meas_record;
++}
++
++static meas_record_lst_t fill_CQI(__attribute__((unused))uint32_t gran_period_ms, cudu_ue_info_pair_t ue_info, __attribute__((unused))const size_t ue_idx)
++{
++  meas_record_lst_t meas_record = {0};
++  
++  meas_record.value = INTEGER_MEAS_VALUE;
++  
++  // Get CQI from CSI report if available
++  if (ue_info.ue && ue_info.ue->UE_sched_ctrl.CSI_report.cri_ri_li_pmi_cqi_report.wb_cqi_1tb > 0) {
++    meas_record.int_val = ue_info.ue->UE_sched_ctrl.CSI_report.cri_ri_li_pmi_cqi_report.wb_cqi_1tb;  // [0-15]
++  } else {
++    meas_record.int_val = 10;  // Default value if measurements not available
++  }
++  
++  return meas_record;
++}
++
+ static kv_measure_t lst_measure[] = {
+-  {.key = "DRB.PdcpSduVolumeDL", .value = fill_DRB_PdcpSduVolumeDL }, 
++  {.key = "DRB.PdcpSduVolumeDL", .value = fill_DRB_PdcpSduVolumeDL },
+   {.key = "DRB.PdcpSduVolumeUL", .value = fill_DRB_PdcpSduVolumeUL },
++  {.key = "DRB.PacketLossRateUl", .value = fill_DRB_PacketLossRateUl },
++  {.key = "RSRP", .value =  fill_RSRP },
++  {.key = "RSRQ", .value =  fill_RSRQ },
++  {.key = "SINR", .value =  fill_SINR },
++  {.key = "CQI", .value =  fill_CQI },
+ #if defined (NGRAN_GNB_DU)
+-  {.key = "DRB.RlcSduDelayDl", .value =  fill_DRB_RlcSduDelayDl }, 
+-  {.key = "DRB.UEThpDl", .value =  fill_DRB_UEThpDl }, 
+-  {.key = "DRB.UEThpUl", .value =  fill_DRB_UEThpUl }, 
+-  {.key = "RRU.PrbTotDl", .value =  fill_RRU_PrbTotDl }, 
+-  {.key = "RRU.PrbTotUl", .value =  fill_RRU_PrbTotUl }, 
++  {.key = "DRB.UEThpDl", .value =  fill_DRB_UEThpDl },
++  {.key = "DRB.UEThpUl", .value =  fill_DRB_UEThpUl },
++  {.key = "DRB.PdcpSduDelayDl", .value =  fill_DRB_RlcSduDelayDl }, // proxy: delay medio RLC
++  {.key = "DRB.RlcSduDelayDl", .value =  fill_DRB_RlcSduDelayDl },
++  {.key = "RRU.PrbTotDl", .value =  fill_RRU_PrbTotDl },
++  {.key = "RRU.PrbTotUl", .value =  fill_RRU_PrbTotUl },
+ #endif
+ }; 
+ 

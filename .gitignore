@@ -1,0 +1,30 @@
+# Build artifacts
+build/
+*.o
+*.a
+*.so
+*.so.*
+
+# Logs / runtime
+*.log
+nrL1_stats.log
+nrMAC_stats.log
+nrRRC_stats.log
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Generated CSVs (paper dataset is curated under data/trials/, keep those)
+ho_multimetric_*.csv
+ho_multi_*.csv
+ho_timer_*.csv
+handover_trigger_metrics_*.csv
+!data/trials/**
